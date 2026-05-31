@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LexiRAG - Enterprise AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        brand: { 50: '#eef2ff', 100: '#e0e7ff', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca', 900: '#312e81' },
+                        surface: { 50: '#f8fafc', 800: '#1e293b', 900: '#0f172a', 950: '#020617' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Mobile Viewport Fix */
+        body { background-color: #020617; color: #f8fafc; margin: 0; height: 100dvh; overflow: hidden; display: flex; }
+        
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+        /* Markdown Styles for AI Answers */
+        .prose p { margin-bottom: 1rem; line-height: 1.6; color: #e2e8f0; }
+        .prose strong { color: #ffffff; font-weight: 600; }
+        .prose ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 1rem; color: #e2e8f0; }
+        .prose ol { list-style-type: decimal; padding-left: 1.25rem; margin-bottom: 1rem; color: #e2e8f0; }
+        .prose li { margin-bottom: 0.5rem; }
+        .prose pre { background: #0f172a; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin-bottom: 1rem; border: 1px solid #1e293b; }
+        .prose code { font-family: monospace; background: #1e293b; padding: 0.2rem 0.4rem; border-radius: 0.25rem; font-size: 0.875em; color: #a5b4fc; }
+
+        /* Hide scrollbar for input textarea */
+        textarea::-webkit-scrollbar { display: none; }
+        textarea { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Smooth Transitions */
+        .transition-all { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 300ms; }
+    </style>
+</head>
+<body>
+
+    <!-- Mobile Overlay Backdrop -->
+    <div id="mobileOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden" onclick="toggleSidebar()"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed md:relative z-50 w-72 h-[100dvh] bg-surface-900 border-r border-surface-800 flex flex-col transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out">
+        <!-- Logo Area -->
+        <div class="h-16 flex items-center px-6 border-b border-surface-800">
+            <div class="flex items-center gap-3">
+                <div class="bg-brand-500/10 text-brand-500 p-1.5 rounded-lg border border-brand-500/20">
+                    <i data-lucide="blocks" class="w-5 h-5"></i>
+                </div>
+                <h1 class="text-lg font-semibold tracking-wide text-white">Lexi<span class="text-brand-500">RAG</span></h1>
+            </div>
+            <!-- Mobile Close Button -->
+            <button class="ml-auto md:hidden text-gray-400 hover:text-white" onclick="toggleSidebar()">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <!-- Sidebar Content -->
+        <div class="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+            <!-- Upload Section -->
+            <div>
+                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-2">Knowledge Base</h3>
+                
+                <div id="dropZone" onclick="document.getElementById('fileInput').click()" 
+                     class="group relative flex flex-col items-center justify-center p-6 bg-surface-800/50 border border-dashed border-surface-700 rounded-xl cursor-pointer hover:bg-surface-800 hover:border-brand-500 transition-all">
+                    <div class="p-3 bg-surface-900 rounded-full group-hover:scale-110 transition-transform duration-300 mb-3 shadow-lg">
+                        <i data-lucide="upload-cloud" class="w-6 h-6 text-brand-500"></i>
+                    </div>
+                    <p class="text-sm font-medium text-gray-200">Upload Document</p>
+                    <p class="text-xs text-gray-500 mt-1">PDF up to 20MB</p>
+                    <input type="file" id="fileInput" accept=".pdf" class="hidden" onchange="handleFileUpload(event)">
+                </div>
+
+                <!-- Upload Status Indicator -->
+                <div id="uploadStatus" class="hidden mt-3 p-3 rounded-xl border flex items-center gap-3 text-sm">
+                    <i id="statusIcon" data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                    <span id="statusText" class="font-medium"></span>
+                </div>
+            </div>
+
+            <!-- Active Document -->
+            <div id="activeDocWidget" class="hidden">
+                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3 px-2">Active Context</h3>
+                <div class="flex items-start gap-3 p-3 bg-brand-500/10 border border-brand-500/20 rounded-xl">
+                    <i data-lucide="file-text" class="w-5 h-5 text-brand-400 mt-0.5 shrink-0"></i>
+                    <div class="overflow-hidden">
+                        <p class="text-sm font-medium text-white truncate" id="docName">policy.pdf</p>
+                        <p class="text-xs text-brand-400/80 mt-1 flex items-center gap-1">
+                            <i data-lucide="check-circle-2" class="w-3 h-3"></i> Indexed in ChromaDB
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar Footer -->
+        <div class="p-4 border-t border-surface-800">
+            <div class="flex items-center gap-3 px-2">
+                <div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                <div class="text-xs text-gray-400">
+                    <p class="font-medium text-gray-300">System Online</p>
+                    <p>Engine: Gemma3-27b</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-[100dvh] bg-surface-950 relative min-w-0">
+        
+        <!-- Mobile Header -->
+        <header class="md:hidden h-14 flex items-center justify-between px-4 border-b border-surface-800 bg-surface-900/80 backdrop-blur-md sticky top-0 z-30">
+            <div class="flex items-center gap-2">
+                <i data-lucide="blocks" class="w-5 h-5 text-brand-500"></i>
+                <span class="font-semibold text-white">LexiRAG</span>
+            </div>
+            <button onclick="toggleSidebar()" class="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-surface-800 transition-colors">
+                <i data-lucide="menu" class="w-6 h-6"></i>
+            </button>
+        </header>
+
+        <!-- Chat Scroll Area -->
+        <div id="chatContainer" class="flex-1 overflow-y-auto w-full scroll-smooth pb-32">
+            
+            <!-- Greeting Message -->
+            <div class="w-full border-b border-surface-800/50 bg-surface-900/20">
+                <div class="max-w-4xl mx-auto flex gap-4 p-4 md:p-6 lg:p-8">
+                    <div class="w-8 h-8 rounded-md bg-brand-600 flex items-center justify-center shrink-0">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <div class="flex-1 space-y-2 mt-1">
+                        <p class="text-gray-100 font-medium text-lg">Welcome to LexiRAG Enterprise</p>
+                        <p class="text-gray-400 text-sm md:text-base leading-relaxed">
+                            I am your AI document auditor. Upload a PDF from the sidebar, and I will analyze its contents using secure vector embeddings. Ask me anything about the document, and I will provide precise, hallucination-free answers.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dynamic Messages will be injected here -->
+            <div id="messagesWrapper" class="flex flex-col"></div>
+
+            <!-- Typing Indicator (Hidden by default) -->
+            <div id="typingIndicator" class="hidden w-full bg-surface-950">
+                <div class="max-w-4xl mx-auto flex gap-4 p-4 md:p-6 lg:p-8">
+                    <div class="w-8 h-8 rounded-md bg-brand-600 flex items-center justify-center shrink-0">
+                        <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+                    </div>
+                    <div class="flex-1 flex items-center gap-2 mt-1">
+                        <span class="flex gap-1">
+                            <span class="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></span>
+                            <span class="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style="animation-delay: 0.2s"></span>
+                            <span class="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style="animation-delay: 0.4s"></span>
+                        </span>
+                        <span class="text-sm text-gray-500 font-medium ml-2">Analyzing vectors...</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Input Area (Fixed to bottom) -->
+        <div class="absolute bottom-0 left-0 w-full bg-gradient-to-t from-surface-950 via-surface-950 to-transparent pt-6 pb-4 px-4">
+            <div class="max-w-4xl mx-auto">
+                <form id="chatForm" onsubmit="handleChatSubmit(event)" 
+                      class="relative flex items-end bg-surface-800 border border-surface-700 rounded-2xl shadow-xl transition-all focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20 overflow-hidden">
+                    
+                    <textarea id="userInput" rows="1" placeholder="Ask a question about your document..." 
+                              class="w-full bg-transparent text-gray-100 placeholder-gray-500 text-base py-4 pl-5 pr-14 resize-none outline-none max-h-32" 
+                              disabled oninput="autoResize(this)" onkeydown="handleEnter(event)"></textarea>
+                    
+                    <button type="submit" id="sendBtn" disabled
+                            class="absolute right-2 bottom-2 p-2 rounded-xl bg-brand-600 text-white hover:bg-brand-500 disabled:opacity-50 disabled:bg-surface-700 disabled:text-gray-500 transition-colors">
+                        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                    </button>
+                </form>
+                <div class="text-center mt-2 text-xs text-gray-500">
+                    AI can make mistakes. Always verify critical enterprise information.
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // UI Elements
+        const UI = {
+            sidebar: document.getElementById('sidebar'),
+            overlay: document.getElementById('mobileOverlay'),
+            chatContainer: document.getElementById('chatContainer'),
+            messagesWrapper: document.getElementById('messagesWrapper'),
+            userInput: document.getElementById('userInput'),
+            sendBtn: document.getElementById('sendBtn'),
+            statusDiv: document.getElementById('uploadStatus'),
+            statusIcon: document.getElementById('statusIcon'),
+            statusText: document.getElementById('statusText'),
+            typingIndicator: document.getElementById('typingIndicator'),
+            activeDocWidget: document.getElementById('activeDocWidget'),
+            docName: document.getElementById('docName')
+        };
+
+        // Mobile Sidebar Toggle
+        function toggleSidebar() {
+            UI.sidebar.classList.toggle('-translate-x-full');
+            UI.overlay.classList.toggle('hidden');
+        }
+
+        // Auto-resize textarea
+        function autoResize(textarea) {
+            textarea.style.height = 'auto';
+            textarea.style.height = (textarea.scrollHeight) + 'px';
+            // Enable/disable button based on input
+            if(textarea.value.trim().length > 0) {
+                UI.sendBtn.removeAttribute('disabled');
+            } else {
+                UI.sendBtn.setAttribute('disabled', 'true');
+            }
+        }
+
+        // Handle Enter key (Shift+Enter for new line)
+        function handleEnter(e) {
+            if(e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if(UI.userInput.value.trim().length > 0 && !UI.sendBtn.disabled) {
+                    document.getElementById('chatForm').dispatchEvent(new Event('submit'));
+                }
+            }
+        }
+
+        // Add message to UI
+        function appendMessage(role, text) {
+            const isAI = role === 'ai';
+            const wrapper = document.createElement('div');
+            // AI gets a slight background tint, User gets transparent background
+            wrapper.className = `w-full ${isAI ? 'border-b border-surface-800/50 bg-surface-900/20' : ''}`;
+            
+            const innerContainer = document.createElement('div');
+            innerContainer.className = "max-w-4xl mx-auto flex gap-4 p-4 md:p-6 lg:p-8";
+
+            const avatar = document.createElement('div');
+            avatar.className = `w-8 h-8 rounded-md flex items-center justify-center shrink-0 ${isAI ? 'bg-brand-600' : 'bg-surface-700'}`;
+            avatar.innerHTML = `<i data-lucide="${isAI ? 'sparkles' : 'user'}" class="w-5 h-5 text-white"></i>`;
+            
+            const content = document.createElement('div');
+            content.className = `flex-1 mt-1 text-sm md:text-base leading-relaxed text-gray-200 ${isAI ? 'prose prose-invert max-w-none' : 'whitespace-pre-wrap'}`;
+            content.innerHTML = isAI ? marked.parse(text) : text;
+            
+            innerContainer.appendChild(avatar);
+            innerContainer.appendChild(content);
+            wrapper.appendChild(innerContainer);
+            
+            UI.messagesWrapper.appendChild(wrapper);
+            lucide.createIcons();
+            
+            // Scroll to bottom smoothly
+            setTimeout(() => {
+                UI.chatContainer.scrollTo({ top: UI.chatContainer.scrollHeight, behavior: 'smooth' });
+            }, 50);
+        }
+
+        // Handle File Upload
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Update UI for loading
+            UI.statusDiv.classList.remove('hidden', 'bg-emerald-500/10', 'text-emerald-400', 'border-emerald-500/20', 'bg-red-500/10', 'text-red-400', 'border-red-500/20');
+            UI.statusDiv.classList.add('bg-brand-500/10', 'text-brand-400', 'border-brand-500/20');
+            UI.statusIcon.setAttribute('data-lucide', 'loader-2');
+            UI.statusIcon.classList.add('animate-spin');
+            UI.statusText.textContent = "Indexing Document...";
+            lucide.createIcons();
+            
+            // Auto close sidebar on mobile
+            if(window.innerWidth <= 768) toggleSidebar();
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Success UI
+                    UI.statusDiv.className = "mt-3 p-3 rounded-xl border flex items-center gap-3 text-sm bg-emerald-500/10 text-emerald-400 border-emerald-500/20";
+                    UI.statusIcon.setAttribute('data-lucide', 'check-circle-2');
+                    UI.statusIcon.classList.remove('animate-spin');
+                    UI.statusText.textContent = "Indexing Complete";
+                    
+                    UI.activeDocWidget.classList.remove('hidden');
+                    UI.docName.textContent = file.name;
+                    
+                    UI.userInput.disabled = false;
+                    UI.userInput.focus();
+                    
+                    appendMessage('ai', `✅ Document **${file.name}** has been securely ingested into the Vector Database. You can now ask questions about its contents.`);
+                } else {
+                    throw new Error(data.detail);
+                }
+            } catch (error) {
+                // Error UI
+                UI.statusDiv.className = "mt-3 p-3 rounded-xl border flex items-center gap-3 text-sm bg-red-500/10 text-red-400 border-red-500/20";
+                UI.statusIcon.setAttribute('data-lucide', 'alert-circle');
+                UI.statusIcon.classList.remove('animate-spin');
+                UI.statusText.textContent = "Upload Failed";
+                appendMessage('ai', `❌ **Error:** ${error.message}`);
+            }
+            lucide.createIcons();
+            event.target.value = ''; // Reset file input
+        }
+
+        // Handle Chat Submit
+        async function handleChatSubmit(e) {
+            e.preventDefault();
+            const query = UI.userInput.value.trim();
+            if (!query) return;
+
+            // Reset input UI
+            UI.userInput.value = '';
+            UI.userInput.style.height = 'auto';
+            UI.userInput.disabled = true;
+            UI.sendBtn.disabled = true;
+            
+            appendMessage('user', query);
+            
+            // Show typing indicator
+            UI.typingIndicator.classList.remove('hidden');
+            UI.chatContainer.scrollTo({ top: UI.chatContainer.scrollHeight, behavior: 'smooth' });
+
+            const formData = new FormData();
+            formData.append('query', query);
+
+            try {
+                const response = await fetch('/api/chat', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                UI.typingIndicator.classList.add('hidden');
+                appendMessage('ai', data.response);
+                
+            } catch (error) {
+                UI.typingIndicator.classList.add('hidden');
+                appendMessage('ai', `⚠️ **Network Error:** Failed to communicate with the server. Ensure the backend is running.`);
+            } finally {
+                UI.userInput.disabled = false;
+                UI.userInput.focus();
+            }
+        }
+    </script>
+</body>
+</html>
